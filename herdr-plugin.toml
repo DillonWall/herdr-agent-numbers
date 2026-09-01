@@ -1,7 +1,7 @@
 id = "agent-numbers"
 name = "Agent Numbers"
 version = "0.1.0"
-min_herdr_version = "0.7.4"
+min_herdr_version = "0.8.2"
 description = "Number the agents panel to match focus_agent (prefix+1..9)."
 platforms = ["linux", "macos"]
 

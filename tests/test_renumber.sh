@@ -68,6 +68,10 @@ rm -rf "$tmp/state"
 : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
 assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart: first run publishes all three"
+# A stat that does not work on this platform degrades silently to a constant marker,
+# which would disable restart detection entirely rather than erroring.
+assert_eq "$(cat "$tmp/state/instance")" "$(stat -c '%i:%Y' "$sock" 2>/dev/null || stat -f '%i:%m' "$sock")" \
+  "the instance marker is a real stat, not the unknown fallback"
 
 : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"

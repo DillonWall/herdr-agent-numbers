@@ -24,7 +24,10 @@ mkdir -p "$state_dir"
 # already published and leave the panel unnumbered. The socket is recreated with the
 # server, so its inode and mtime identify the instance; a change means republish all.
 socket="${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}"
-instance="$(stat -c '%i:%Y' "$socket" 2>/dev/null || echo unknown)"
+# stat is not portable: GNU takes -c, BSD/macOS takes -f. Falling back to "unknown"
+# would be silent -- the marker would never change, so a restart would never
+# invalidate the cache and the panel would stay unnumbered.
+instance="$(stat -c '%i:%Y' "$socket" 2>/dev/null || stat -f '%i:%m' "$socket" 2>/dev/null || echo unknown)"
 if [ "$(cat "$instance_file" 2>/dev/null || true)" != "$instance" ]; then
   : > "$state"
 fi
