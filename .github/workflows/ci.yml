@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck jq
+
+      # The plugin is bash + jq only, so the lint gate is the type checker.
+      - name: Lint
+        run: shellcheck -x ./*.sh tests/*.sh
+
+      - name: Test
+        run: bash tests/run.sh

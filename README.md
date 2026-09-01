@@ -40,9 +40,13 @@ ranking is inferred** from what an attention-queue sort would plausibly do — h
 neither documents nor exposes it. If herdr's real ranking differs, the numbers are
 quietly wrong rather than visibly broken.
 
-That is why there is a `verify` action. Under `priority`, run it with at least one
-agent actually `blocked` or `working` and diff its output against the rendered
-sidebar before trusting the numbers:
+`done` above `working` has since been **verified** against a live panel — with one
+`done` agent at seq 45 and one `working` at seq 48, the panel put `done` first, which
+neither a working-first ranking nor plain seq-descending predicts. **`blocked` remains
+unverified**: no agent was blocked during any observation.
+
+That is why there is a `verify` action. Under `priority`, run it and diff its output
+against the rendered sidebar before trusting the numbers:
 
 ```bash
 herdr plugin action invoke agent-numbers.verify
@@ -94,21 +98,22 @@ status *is* the ordering input — plus `pane.agent_detected`, `pane.created` an
 `workspace.moved`, which reorder the panel under `spaces` with no status change at
 all. Renames deliberately trigger nothing: the order does not depend on the name.
 
-Panes, unlike workspaces, do not expose their metadata tokens in the snapshot, so
-there is nothing to read back and diff against. The last published ordering is
-cached in the plugin state dir instead, and only panes whose ordinal actually moved
-are rewritten. Those writes go out concurrently: a full reorder touches every agent,
-and the panel has already reordered from herdr's own state by the time any of them
-land, so the round trips are a visible lag rather than just CPU. A write that fails
-leaves the cache untouched, so the next event retries instead of trusting an ordinal
-that never landed. Changing `agent_panel_sort` needs no cache reset: the cached lines
-carry the ordinals, so the next run rewrites exactly the panes that moved.
+The token each pane already carries is read back out of the same snapshot, and only
+the panes that disagree are written. Nothing is cached, so there is no stored state
+to drift out of sync with reality — a token lost to a server restart, or clobbered by
+something else, is simply republished on the next event. `pane.focused` is what makes
+recovery prompt: it is the first event after reattaching.
 
-Tokens are in-memory and die with the herdr server, which the cache alone cannot
-detect — it would report everything as already published and leave the panel blank.
-So the cache is keyed on the socket's inode and mtime, which change when the server
-restarts, and `pane.focused` acts as the recovery hook: the first event after
-reattaching republishes the lot.
+(Metadata tokens are in-memory and die with the herdr server. That needs no special
+handling here: a restarted server has no tokens, so every ordinal differs and every
+pane is rewritten. Switching `agent_panel_sort` is the same story — the published
+numbers simply disagree with the new ordering and get corrected.)
+
+Those writes go out concurrently. A full reorder touches every agent, and the panel
+has already reordered from herdr's own state by the time any of them land, so the
+round trips are a visible lag rather than just CPU. Every write is attempted even if
+one fails; a failure needs no bookkeeping, since the token stays wrong and the next
+event notices.
 
 All agents are numbered, including past the ninth. Only 1–9 are bindable via
 `focus_agent`, but truncating the display would misrepresent the panel.
@@ -120,14 +125,20 @@ If herdr ships a native `agent_index` row token
 this plugin and use it. A replicated sort tracking undocumented internal behaviour
 is worth maintaining only while there is no alternative.
 
-## Development
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). The single most useful contribution is an
+observation of the panel with a **`blocked`** agent in it — that rung of the ranking
+is still unverified.
 
 ```bash
-bash tests/test_order.sh
-bash tests/test_sort_mode.sh
-bash tests/test_renumber.sh
-shellcheck -x *.sh tests/*.sh
+bash tests/run.sh                  # every suite
+shellcheck -x ./*.sh tests/*.sh    # must be clean
 ```
 
-The tests run entirely against fixtures, synthetic config dirs and a fake `herdr` on
-`PATH`; they never touch a live session.
+Both run in CI on every push and pull request. The tests use fixture snapshots,
+synthetic config dirs and a fake `herdr` on `PATH`; they never touch a live session.
+
+## License
+
+[MIT](LICENSE) — © 2026 Dillon Wall.

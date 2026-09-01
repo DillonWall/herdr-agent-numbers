@@ -9,92 +9,92 @@ assert_eq() { if [ "$1" = "$2" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1));
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 
-# Fake herdr: `api snapshot` prints the fixture, everything else logs its argv.
+# Fake herdr: `api snapshot` prints whatever snapshot the current case set up,
+# everything else logs its argv (and can be told to fail).
 cat > "$tmp/bin/herdr" <<FAKE
 #!/usr/bin/env bash
-if [ "\$1" = "api" ] && [ "\$2" = "snapshot" ]; then cat "$DIR/fixtures/idle-only.json"; exit 0; fi
+if [ "\$1" = "api" ] && [ "\$2" = "snapshot" ]; then cat "$tmp/snapshot.json"; exit 0; fi
 echo "\$@" >> "$tmp/calls.log"
 if [ -n "\${FAKE_FAIL:-}" ]; then exit 1; fi
 FAKE
 chmod +x "$tmp/bin/herdr"
 # HERDR_BIN_PATH is set in every pane herdr spawns, and renumber.sh prefers it over
 # PATH -- so it must be pointed at the fake too, or this test writes to the live session.
-export PATH="$tmp/bin:$PATH" HERDR_BIN_PATH="$tmp/bin/herdr" AGENT_NUMBERS_STATE_DIR="$tmp/state"
+export PATH="$tmp/bin:$PATH" HERDR_BIN_PATH="$tmp/bin/herdr"
 # Pin the sort mode so the suite does not read the developer's own herdr config.
 export AGENT_NUMBERS_SORT=priority
 
-# First run writes every agent's ordinal.
-: > "$tmp/calls.log"
+# publish <pane=num,...> -- builds a snapshot whose panes carry those num tokens.
+# An empty spec means no pane has been numbered yet, which is also what a restarted
+# server looks like: the tokens live in its memory and die with it.
+publish() {
+  jq --arg spec "$1" '
+    ($spec | if . == "" then [] else split(",") end
+      | map(split("=") | {key: .[0], value: {num: .[1]}}) | from_entries) as $tok
+    | .result.snapshot.panes = (.result.snapshot.agents
+        | map({pane_id, agent: "claude"}
+              + (if $tok[.pane_id] then {tokens: $tok[.pane_id]} else {} end)))
+  ' "$DIR/fixtures/idle-only.json" > "$tmp/snapshot.json"
+}
+
+# Priority order for idle-only.json is w1:p1=1, w2:p1=2, w1:p2=3.
+
+# Nothing published yet: every agent gets numbered.
+publish ""; : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "first run writes all three"
-assert_eq "$(grep -c 'num=1' "$tmp/calls.log")" "1" "writes ordinal 1"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "unnumbered panel publishes all three"
 assert_eq "$(grep -c 'w1:p1 --source agent-numbers --token num=1' "$tmp/calls.log")" "1" "p1 gets 1"
-assert_eq "$(grep -c 'w2:p1 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "p3 gets 2"
+assert_eq "$(grep -c 'w2:p1 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "w2:p1 gets 2"
+assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=3' "$tmp/calls.log")" "1" "p2 gets 3"
 
-# Second run is a no-op: panes do not expose their tokens, so the state cache is
-# the only way to avoid rewriting unchanged values on every event.
-: > "$tmp/calls.log"
+# Already correct: nothing is rewritten. This is the common case -- most events do
+# not reorder anything, and a no-op must stay silent.
+publish "w1:p1=1,w2:p1=2,w1:p2=3"; : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "second run writes nothing"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "correct panel writes nothing"
 
-# A changed ordering writes only what moved.
-rm -rf "$tmp/state"
-: > "$tmp/calls.log"
-AGENT_NUMBERS_DRY_RUN=1 bash "$DIR/../renumber.sh" > "$tmp/dry.out"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "dry run calls nothing"
-assert_eq "$(grep -c 'report-metadata' "$tmp/dry.out")" "3" "dry run prints what it would do"
+# One pane drifted: only that pane is corrected. Reading the live token back is what
+# makes this self-healing -- a cache would have called this pane already-published.
+publish "w1:p1=1,w2:p1=9,w1:p2=3"; : > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "1" "only the drifted pane is rewritten"
+assert_eq "$(grep -c 'w2:p1 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "and it is corrected to 2"
 
-# The sort mode reaches order.jq: spaces mode numbers the same fixture differently,
+# A server restart drops every token. No restart detection is needed: the tokens are
+# simply absent, so they all differ and all get republished.
+publish ""; : > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart republishes all three"
+
+# Partially numbered, e.g. an agent that appeared after the last run.
+publish "w1:p1=1,w2:p1=2"; : > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "1" "a new agent is numbered on its own"
+assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=3' "$tmp/calls.log")" "1" "and gets the free ordinal"
+
+# The sort mode reaches order.jq: spaces mode numbers the same agents differently,
 # following the snapshot's array order instead of the status ranking.
-rm -rf "$tmp/state"
-: > "$tmp/calls.log"
+publish ""; : > "$tmp/calls.log"
 AGENT_NUMBERS_SORT=spaces bash "$DIR/../renumber.sh"
 assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "spaces: p2 gets 2"
 assert_eq "$(grep -c 'w2:p1 --source agent-numbers --token num=3' "$tmp/calls.log")" "1" "spaces: w2:p1 gets 3"
 
-# Switching mode against a warm cache rewrites exactly the panes that moved. Under
-# priority w1:p2 was 3 and w2:p1 was 2; both swap, while w1:p1 stays 1.
-: > "$tmp/calls.log"
-bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "2" "mode switch rewrites only the two that moved"
-assert_eq "$(grep -c 'w1:p1' "$tmp/calls.log")" "0" "mode switch leaves the unmoved pane alone"
+# Dry run prints what it would do and touches nothing.
+publish ""; : > "$tmp/calls.log"
+AGENT_NUMBERS_DRY_RUN=1 bash "$DIR/../renumber.sh" > "$tmp/dry.out"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "dry run calls nothing"
+assert_eq "$(grep -c 'report-metadata' "$tmp/dry.out")" "3" "dry run prints what it would do"
 
-# Metadata tokens are in-memory and die with the herdr server, but the cache would
-# happily report "already published" and write nothing -- leaving the panel unnumbered
-# until an ordinal happened to move. A new server instance must invalidate the cache.
-sock="$tmp/herdr.sock"; : > "$sock"
-export HERDR_SOCKET_PATH="$sock"
-rm -rf "$tmp/state"
-: > "$tmp/calls.log"
-bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart: first run publishes all three"
-# A stat that does not work on this platform degrades silently to a constant marker,
-# which would disable restart detection entirely rather than erroring.
-assert_eq "$(cat "$tmp/state/instance")" "$(stat -c '%i:%Y' "$sock" 2>/dev/null || stat -f '%i:%m' "$sock")" \
-  "the instance marker is a real stat, not the unknown fallback"
-
-: > "$tmp/calls.log"
-bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "restart: same instance stays quiet"
-
-# A restarted server means a new socket inode; the tokens it held are gone.
-rm -f "$sock"; : > "$sock"
-: > "$tmp/calls.log"
-bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart: new instance republishes all three"
-
-# A failed write must not be recorded as published, or that pane keeps its stale
-# number until its ordinal happens to move again. The run reports failure and the
-# cache stays untouched, so the next event retries the whole set.
-rm -rf "$tmp/state"
-: > "$tmp/calls.log"
+# A failed write is reported, and every write is still attempted so one bad pane
+# cannot strand the rest. Nothing is cached, so the next event simply retries.
+publish ""; : > "$tmp/calls.log"
 FAKE_FAIL=1 bash "$DIR/../renumber.sh" 2>/dev/null
 assert_eq "$?" "1" "a failed write makes the run fail"
 assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "every write is still attempted"
 
 : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "the next run retries rather than trusting a poisoned cache"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "the next run retries the failed writes"
 
 echo "--- test_renumber.sh: $PASS passed, $FAIL failed ---"
 [ "$FAIL" -eq 0 ]
