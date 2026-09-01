@@ -13,7 +13,14 @@
 # fields it plausibly uses. `state_change_seq` descending was verified against the
 # live panel; the status ranking below is INFERRED. See the spec's Risks section
 # and the README's caveat -- run the verify action before trusting these numbers.
-def rank: {"blocked":0,"working":1,"done":2,"idle":3}[.] // 4;
+# It is an attention queue, so it ranks by who is waiting on YOU: a blocked agent
+# wants input, a done agent wants review, a working agent wants nothing yet.
+# done-above-working was VERIFIED against the live panel -- with one done at seq 45
+# and one working at seq 48, the panel put done first, which neither the original
+# guess (working above done) nor plain seq-descending predicts. See the regression
+# fixture done-outranks-working.json. blocked's rung is still inferred: no agent was
+# blocked during the observation.
+def rank: {"blocked":0,"done":1,"working":2,"idle":3}[.] // 4;
 
 [ .result.snapshot.agents[] | {pane_id, agent_status, state_change_seq} ]
 | (if $mode == "priority"

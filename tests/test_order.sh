@@ -28,8 +28,14 @@ check "idle-only order" priority idle-only.json "w1:p1 w2:p1 w1:p2"
 check_numbers "idle-only ordinals" priority idle-only.json "1 2 3"
 
 # The inferred case: status rank first, then seq descending within a status.
-check "mixed-status order" priority mixed-status.json "w1:pBlocked w1:pWorkB w1:pWorkA w1:pDone w1:pIdle"
+check "mixed-status order" priority mixed-status.json "w1:pBlocked w1:pDone w1:pWorkB w1:pWorkA w1:pIdle"
 check_numbers "mixed-status ordinals" priority mixed-status.json "1 2 3 4 5"
+
+# Regression: taken from the live panel. done outranks working even though the
+# working agent has the HIGHER seq, so neither the original ranking nor plain
+# seq-descending reproduces this. Under spaces the array order still wins.
+check "done outranks working" priority done-outranks-working.json "w2:p4 w2:p3"
+check "spaces ignores the ranking" spaces done-outranks-working.json "w2:p3 w2:p4"
 
 # Agents past the ninth are still numbered; focus_agent only binds 1-9 but truncating
 # the display would misrepresent the panel.
