@@ -39,16 +39,34 @@ current="$("$herdr" api snapshot | jq -r --arg mode "$mode" -f "$here/order.jq")
 # sorted input; the ordering itself is already captured in the lines themselves.
 changed="$(comm -23 <(printf '%s\n' "$current" | sort) <(sort "$state") || true)"
 
+# The writes are independent, so they go out concurrently -- a full reorder touches
+# every agent, and at ~2ms per round trip the sequential version spent most of its
+# runtime waiting. The panel reorders from herdr's own state before any of this lands,
+# so this shortens a visible lag rather than merely saving CPU.
+pids=()
 while IFS=$'\t' read -r pane_id num; do
   [ -n "$pane_id" ] || continue
   if [ "$dry" = "1" ]; then
     printf '%s pane report-metadata %s --source agent-numbers --token num=%s\n' "$herdr" "$pane_id" "$num"
   else
-    "$herdr" pane report-metadata "$pane_id" --source agent-numbers --token "num=$num"
+    "$herdr" pane report-metadata "$pane_id" --source agent-numbers --token "num=$num" &
+    pids+=("$!")
   fi
 done <<< "$changed"
 
-# Record what we just published, so the next event can diff against it.
+# Every write is attempted before any failure is reported, so one bad pane cannot
+# strand the rest at stale numbers.
+rc=0
+for pid in ${pids[@]+"${pids[@]}"}; do
+  wait "$pid" || rc=1
+done
+
+# Record what we just published, so the next event can diff against it. On a failed
+# write the cache is deliberately left alone: recording an ordinal that never landed
+# would keep that pane stale until its number happened to change again.
+if [ "$rc" -ne 0 ]; then
+  exit "$rc"
+fi
 if [ "$dry" != "1" ]; then
   printf '%s\n' "$current" > "$state"
   printf '%s\n' "$instance" > "$instance_file"

@@ -97,7 +97,11 @@ all. Renames deliberately trigger nothing: the order does not depend on the name
 Panes, unlike workspaces, do not expose their metadata tokens in the snapshot, so
 there is nothing to read back and diff against. The last published ordering is
 cached in the plugin state dir instead, and only panes whose ordinal actually moved
-are rewritten. Changing `agent_panel_sort` needs no cache reset: the cached lines
+are rewritten. Those writes go out concurrently: a full reorder touches every agent,
+and the panel has already reordered from herdr's own state by the time any of them
+land, so the round trips are a visible lag rather than just CPU. A write that fails
+leaves the cache untouched, so the next event retries instead of trusting an ordinal
+that never landed. Changing `agent_panel_sort` needs no cache reset: the cached lines
 carry the ordinals, so the next run rewrites exactly the panes that moved.
 
 Tokens are in-memory and die with the herdr server, which the cache alone cannot

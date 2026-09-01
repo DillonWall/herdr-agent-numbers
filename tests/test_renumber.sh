@@ -14,6 +14,7 @@ cat > "$tmp/bin/herdr" <<FAKE
 #!/usr/bin/env bash
 if [ "\$1" = "api" ] && [ "\$2" = "snapshot" ]; then cat "$DIR/fixtures/idle-only.json"; exit 0; fi
 echo "\$@" >> "$tmp/calls.log"
+if [ -n "\${FAKE_FAIL:-}" ]; then exit 1; fi
 FAKE
 chmod +x "$tmp/bin/herdr"
 # HERDR_BIN_PATH is set in every pane herdr spawns, and renumber.sh prefers it over
@@ -77,6 +78,19 @@ rm -f "$sock"; : > "$sock"
 : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
 assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart: new instance republishes all three"
+
+# A failed write must not be recorded as published, or that pane keeps its stale
+# number until its ordinal happens to move again. The run reports failure and the
+# cache stays untouched, so the next event retries the whole set.
+rm -rf "$tmp/state"
+: > "$tmp/calls.log"
+FAKE_FAIL=1 bash "$DIR/../renumber.sh" 2>/dev/null
+assert_eq "$?" "1" "a failed write makes the run fail"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "every write is still attempted"
+
+: > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "the next run retries rather than trusting a poisoned cache"
 
 echo "--- test_renumber.sh: $PASS passed, $FAIL failed ---"
 [ "$FAIL" -eq 0 ]
