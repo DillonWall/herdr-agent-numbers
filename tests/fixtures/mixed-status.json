@@ -1,0 +1,7 @@
+{"result":{"snapshot":{"agents":[
+{"pane_id":"w1:pIdle","agent_status":"idle","state_change_seq":50},
+{"pane_id":"w1:pDone","agent_status":"done","state_change_seq":10},
+{"pane_id":"w1:pWorkA","agent_status":"working","state_change_seq":20},
+{"pane_id":"w1:pBlocked","agent_status":"blocked","state_change_seq":1},
+{"pane_id":"w1:pWorkB","agent_status":"working","state_change_seq":30}
+]}}}

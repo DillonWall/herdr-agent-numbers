@@ -1,0 +1,5 @@
+{"result":{"snapshot":{"agents":[
+{"pane_id":"w1:p1","agent_status":"idle","state_change_seq":9},
+{"pane_id":"w1:p2","agent_status":"idle","state_change_seq":2},
+{"pane_id":"w2:p1","agent_status":"idle","state_change_seq":3}
+]}}}
