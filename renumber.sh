@@ -14,8 +14,20 @@ state_dir="${AGENT_NUMBERS_STATE_DIR:-${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/sta
 state="$state_dir/last-order"
 dry="${AGENT_NUMBERS_DRY_RUN:-0}"
 
+instance_file="$state_dir/instance"
+
 mkdir -p "$state_dir"
 [ -f "$state" ] || : > "$state"
+
+# Metadata tokens live in the server's memory and do not survive a restart, but the
+# cache cannot tell a restart from a quiet moment -- it would report everything as
+# already published and leave the panel unnumbered. The socket is recreated with the
+# server, so its inode and mtime identify the instance; a change means republish all.
+socket="${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}"
+instance="$(stat -c '%i:%Y' "$socket" 2>/dev/null || echo unknown)"
+if [ "$(cat "$instance_file" 2>/dev/null || true)" != "$instance" ]; then
+  : > "$state"
+fi
 
 # The panel order differs completely between herdr's two sort modes, so the active
 # one selects which derivation order.jq applies.
@@ -37,4 +49,7 @@ while IFS=$'\t' read -r pane_id num; do
 done <<< "$changed"
 
 # Record what we just published, so the next event can diff against it.
-if [ "$dry" != "1" ]; then printf '%s\n' "$current" > "$state"; fi
+if [ "$dry" != "1" ]; then
+  printf '%s\n' "$current" > "$state"
+  printf '%s\n' "$instance" > "$instance_file"
+fi

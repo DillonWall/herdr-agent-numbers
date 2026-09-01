@@ -58,5 +58,25 @@ bash "$DIR/../renumber.sh"
 assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "2" "mode switch rewrites only the two that moved"
 assert_eq "$(grep -c 'w1:p1' "$tmp/calls.log")" "0" "mode switch leaves the unmoved pane alone"
 
+# Metadata tokens are in-memory and die with the herdr server, but the cache would
+# happily report "already published" and write nothing -- leaving the panel unnumbered
+# until an ordinal happened to move. A new server instance must invalidate the cache.
+sock="$tmp/herdr.sock"; : > "$sock"
+export HERDR_SOCKET_PATH="$sock"
+rm -rf "$tmp/state"
+: > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart: first run publishes all three"
+
+: > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "restart: same instance stays quiet"
+
+# A restarted server means a new socket inode; the tokens it held are gone.
+rm -f "$sock"; : > "$sock"
+: > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "restart: new instance republishes all three"
+
 echo "--- test_renumber.sh: $PASS passed, $FAIL failed ---"
 [ "$FAIL" -eq 0 ]

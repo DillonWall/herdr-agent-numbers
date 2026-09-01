@@ -88,16 +88,23 @@ mode, and writes each agent's position:
 herdr pane report-metadata <pane_id> --source agent-numbers --token num=<n>
 ```
 
-It runs on `pane.agent_status_changed`, `pane.agent_detected`, `pane.created` and
-`pane.closed`. The status event is load-bearing under `priority`, where the status
-*is* the ordering input, so every reorder is preceded by it. Renames deliberately
-trigger nothing — the order does not depend on the name.
+It runs on `pane.agent_status_changed` — load-bearing under `priority`, where the
+status *is* the ordering input — plus `pane.agent_detected`, `pane.created` and
+`pane.closed` for agents appearing and disappearing, and `pane.moved` /
+`workspace.moved`, which reorder the panel under `spaces` with no status change at
+all. Renames deliberately trigger nothing: the order does not depend on the name.
 
 Panes, unlike workspaces, do not expose their metadata tokens in the snapshot, so
 there is nothing to read back and diff against. The last published ordering is
 cached in the plugin state dir instead, and only panes whose ordinal actually moved
 are rewritten. Changing `agent_panel_sort` needs no cache reset: the cached lines
 carry the ordinals, so the next run rewrites exactly the panes that moved.
+
+Tokens are in-memory and die with the herdr server, which the cache alone cannot
+detect — it would report everything as already published and leave the panel blank.
+So the cache is keyed on the socket's inode and mtime, which change when the server
+restarts, and `pane.focused` acts as the recovery hook: the first event after
+reattaching republishes the lot.
 
 All agents are numbered, including past the ninth. Only 1–9 are bindable via
 `focus_agent`, but truncating the display would misrepresent the panel.

@@ -1,32 +1,59 @@
 id = "agent-numbers"
 name = "Agent Numbers"
-description = "Numbers the agents panel to match focus_agent (prefix+1..9)."
+version = "0.1.0"
+min_herdr_version = "0.7.4"
+description = "Number the agents panel to match focus_agent (prefix+1..9)."
+platforms = ["linux", "macos"]
 
 [[actions]]
 id = "renumber"
 title = "Renumber agents"
+contexts = ["global"]
 command = ["./renumber.sh"]
 
 [[actions]]
 id = "verify"
 title = "Verify agent ordering"
+contexts = ["global"]
 command = ["./verify.sh"]
 
 # Under agent_panel_sort = "priority" the ordering input IS the agent status, so
-# every reorder is preceded by a status change. The create/close/detect events
-# cover agents appearing and disappearing.
+# every reorder is preceded by a status change.
+
 [[events]]
-event = "pane.agent_status_changed"
+on = "pane.agent_status_changed"
+command = ["./renumber.sh"]
+
+# Agents appearing and disappearing, in either sort mode.
+
+[[events]]
+on = "pane.agent_detected"
 command = ["./renumber.sh"]
 
 [[events]]
-event = "pane.agent_detected"
+on = "pane.created"
 command = ["./renumber.sh"]
 
 [[events]]
-event = "pane.created"
+on = "pane.closed"
+command = ["./renumber.sh"]
+
+# Under "spaces" the order is structural, so a pane or space moving reorders the
+# panel with no status change at all. Neither event fires in the priority case,
+# so carrying both costs nothing there.
+
+[[events]]
+on = "pane.moved"
 command = ["./renumber.sh"]
 
 [[events]]
-event = "pane.closed"
+on = "workspace.moved"
+command = ["./renumber.sh"]
+
+# Tokens are in-memory only and do not survive a server restart. Focus is the first
+# event after reattaching, so it doubles as the recovery hook -- renumber.sh keys its
+# cache on the socket instance, so a restart republishes instead of no-opping.
+
+[[events]]
+on = "pane.focused"
 command = ["./renumber.sh"]
