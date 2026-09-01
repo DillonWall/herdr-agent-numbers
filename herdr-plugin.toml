@@ -1,0 +1,32 @@
+id = "agent-numbers"
+name = "Agent Numbers"
+description = "Numbers the agents panel to match focus_agent (prefix+1..9)."
+
+[[actions]]
+id = "renumber"
+title = "Renumber agents"
+command = ["./renumber.sh"]
+
+[[actions]]
+id = "verify"
+title = "Verify agent ordering"
+command = ["./verify.sh"]
+
+# Under agent_panel_sort = "priority" the ordering input IS the agent status, so
+# every reorder is preceded by a status change. The create/close/detect events
+# cover agents appearing and disappearing.
+[[events]]
+event = "pane.agent_status_changed"
+command = ["./renumber.sh"]
+
+[[events]]
+event = "pane.agent_detected"
+command = ["./renumber.sh"]
+
+[[events]]
+event = "pane.created"
+command = ["./renumber.sh"]
+
+[[events]]
+event = "pane.closed"
+command = ["./renumber.sh"]
