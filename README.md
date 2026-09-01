@@ -10,11 +10,25 @@ row token. This plugin fills that gap the same way
 does for spaces: it publishes an ordinal as pane metadata, which the sidebar
 renders through a `"$num"` row token.
 
-## The important caveat
+## Both sort modes
 
-`numbered-workspaces` *reads* a server-computed ordinal and mirrors it back. There
-is no such number for agents, so this plugin **replicates herdr's ordering rather
-than reading it**:
+The agents panel orders itself two different ways, and the numbers are only right
+if the plugin knows which is in force. herdr does not expose the setting —
+`herdr api snapshot` carries no config and `herdr config` has no getter — so
+`sort-mode.sh` reads `agent_panel_sort` out of `config.toml` directly, locating it
+from `HERDR_SOCKET_PATH`. Unset or unrecognised falls back to `spaces`, herdr's own
+default. `AGENT_NUMBERS_SORT` overrides it.
+
+### `agent_panel_sort = "spaces"` — read, not guessed
+
+The snapshot's `agents` array already arrives grouped by workspace in ascending
+pane order, byte-identical to the `panes` array. The panel order is therefore taken
+straight from it. Nothing is inferred and there is nothing to get wrong.
+
+### `agent_panel_sort = "priority"` — replicated, and worth checking
+
+There is no ordinal to read, so the sort is reconstructed from the two fields it
+plausibly uses:
 
 ```
 sort by agent status  (blocked < working < done < idle)
@@ -22,13 +36,13 @@ then by state_change_seq, descending
 ```
 
 The `state_change_seq` half was verified against the live panel. The **status
-ranking is inferred** from what a "priority" (attention-queue) sort would plausibly
-do — herdr does not document it and does not expose it. If herdr's real ranking
-differs, the numbers are quietly wrong rather than visibly broken.
+ranking is inferred** from what an attention-queue sort would plausibly do — herdr
+neither documents nor exposes it. If herdr's real ranking differs, the numbers are
+quietly wrong rather than visibly broken.
 
-That is why there is a `verify` action. Run it, with at least one agent actually
-`blocked` or `working`, and diff its output against the rendered sidebar before
-trusting the numbers:
+That is why there is a `verify` action. Under `priority`, run it with at least one
+agent actually `blocked` or `working` and diff its output against the rendered
+sidebar before trusting the numbers:
 
 ```bash
 herdr plugin action invoke agent-numbers.verify
@@ -38,10 +52,7 @@ If the two disagree, fix the `rank` function in `order.jq` from the evidence.
 
 ## Requirements
 
-- `bash` and `jq` — no other runtime dependencies.
-- `agent_panel_sort = "priority"` in your herdr config. This plugin replicates that
-  specific sort. Under `agent_panel_sort = "spaces"` the ordering is structural and
-  these numbers will be wrong.
+`bash` and `jq`. No other runtime dependencies.
 
 ## Install
 
@@ -70,22 +81,23 @@ herdr plugin action invoke agent-numbers.renumber
 
 ## How it works
 
-`renumber.sh` reads `herdr api snapshot`, runs `order.jq` over it to derive the
-ordering, and writes each agent's position:
+`renumber.sh` reads `herdr api snapshot`, runs `order.jq` over it in the active sort
+mode, and writes each agent's position:
 
 ```
 herdr pane report-metadata <pane_id> --source agent-numbers --token num=<n>
 ```
 
 It runs on `pane.agent_status_changed`, `pane.agent_detected`, `pane.created` and
-`pane.closed`. The status event is the load-bearing one: under a priority sort the
-status *is* the ordering input, so every reorder is preceded by it. Renames
-deliberately trigger nothing — the order does not depend on the name.
+`pane.closed`. The status event is load-bearing under `priority`, where the status
+*is* the ordering input, so every reorder is preceded by it. Renames deliberately
+trigger nothing — the order does not depend on the name.
 
 Panes, unlike workspaces, do not expose their metadata tokens in the snapshot, so
 there is nothing to read back and diff against. The last published ordering is
 cached in the plugin state dir instead, and only panes whose ordinal actually moved
-are rewritten.
+are rewritten. Changing `agent_panel_sort` needs no cache reset: the cached lines
+carry the ordinals, so the next run rewrites exactly the panes that moved.
 
 All agents are numbered, including past the ninth. Only 1–9 are bindable via
 `focus_agent`, but truncating the display would misrepresent the panel.
@@ -101,9 +113,10 @@ is worth maintaining only while there is no alternative.
 
 ```bash
 bash tests/test_order.sh
+bash tests/test_sort_mode.sh
 bash tests/test_renumber.sh
 shellcheck -x *.sh tests/*.sh
 ```
 
-The tests run entirely against fixtures and a fake `herdr` on `PATH`; they never
-touch a live session.
+The tests run entirely against fixtures, synthetic config dirs and a fake `herdr` on
+`PATH`; they never touch a live session.

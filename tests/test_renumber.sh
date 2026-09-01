@@ -19,6 +19,8 @@ chmod +x "$tmp/bin/herdr"
 # HERDR_BIN_PATH is set in every pane herdr spawns, and renumber.sh prefers it over
 # PATH -- so it must be pointed at the fake too, or this test writes to the live session.
 export PATH="$tmp/bin:$PATH" HERDR_BIN_PATH="$tmp/bin/herdr" AGENT_NUMBERS_STATE_DIR="$tmp/state"
+# Pin the sort mode so the suite does not read the developer's own herdr config.
+export AGENT_NUMBERS_SORT=priority
 
 # First run writes every agent's ordinal.
 : > "$tmp/calls.log"
@@ -40,6 +42,21 @@ rm -rf "$tmp/state"
 AGENT_NUMBERS_DRY_RUN=1 bash "$DIR/../renumber.sh" > "$tmp/dry.out"
 assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "dry run calls nothing"
 assert_eq "$(grep -c 'report-metadata' "$tmp/dry.out")" "3" "dry run prints what it would do"
+
+# The sort mode reaches order.jq: spaces mode numbers the same fixture differently,
+# following the snapshot's array order instead of the status ranking.
+rm -rf "$tmp/state"
+: > "$tmp/calls.log"
+AGENT_NUMBERS_SORT=spaces bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "spaces: p2 gets 2"
+assert_eq "$(grep -c 'w2:p1 --source agent-numbers --token num=3' "$tmp/calls.log")" "1" "spaces: w2:p1 gets 3"
+
+# Switching mode against a warm cache rewrites exactly the panes that moved. Under
+# priority w1:p2 was 3 and w2:p1 was 2; both swap, while w1:p1 stays 1.
+: > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "2" "mode switch rewrites only the two that moved"
+assert_eq "$(grep -c 'w1:p1' "$tmp/calls.log")" "0" "mode switch leaves the unmoved pane alone"
 
 echo "--- test_renumber.sh: $PASS passed, $FAIL failed ---"
 [ "$FAIL" -eq 0 ]

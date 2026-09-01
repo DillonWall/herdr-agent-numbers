@@ -17,7 +17,11 @@ dry="${AGENT_NUMBERS_DRY_RUN:-0}"
 mkdir -p "$state_dir"
 [ -f "$state" ] || : > "$state"
 
-current="$("$herdr" api snapshot | jq -r -f "$here/order.jq")"
+# The panel order differs completely between herdr's two sort modes, so the active
+# one selects which derivation order.jq applies.
+mode="$("$here/sort-mode.sh")"
+
+current="$("$herdr" api snapshot | jq -r --arg mode "$mode" -f "$here/order.jq")"
 
 # Write only the panes whose ordinal differs from what we last wrote. comm needs
 # sorted input; the ordering itself is already captured in the lines themselves.
