@@ -27,32 +27,28 @@ straight from it. Nothing is inferred and there is nothing to get wrong.
 
 ### `agent_panel_sort = "priority"` — replicated, and worth checking
 
-There is no ordinal to read, so the sort is reconstructed from the two fields it
-plausibly uses:
+There is no ordinal to read, so the plugin reconstructs the sort:
 
 ```
-sort by agent status  (blocked < working < done < idle)
-then by state_change_seq, descending
+blocked < done < working < idle < unknown
+then state_change_seq, descending
 ```
 
-The `state_change_seq` half was verified against the live panel. The **status
-ranking is inferred** from what an attention-queue sort would plausibly do — herdr
-neither documents nor exposes it. If herdr's real ranking differs, the numbers are
-quietly wrong rather than visibly broken.
+This matches [herdr 0.9.0's status ranking](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell.rs)
+and [sidebar sort](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/agent_sidebar.rs).
+However, the client [tracks whether you have viewed a completion independently](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/endpoint_agent_state.rs),
+which can change its displayed `done`/`idle` status and ordering without a matching
+server event. Server snapshots do not expose that client-specific view. Numbers
+can therefore disagree with the sidebar even after a successful refresh; more
+frequent refreshes cannot guarantee an exact match. Separate clients may have
+different orders for the same panes.
 
-`done` above `working` has since been **verified** against a live panel — with one
-`done` agent at seq 45 and one `working` at seq 48, the panel put `done` first, which
-neither a working-first ranking nor plain seq-descending predicts. **`blocked` remains
-unverified**: no agent was blocked during any observation.
-
-That is why there is a `verify` action. Under `priority`, run it and diff its output
-against the rendered sidebar before trusting the numbers:
+The verify action compares the plugin's computed order with published metadata;
+compare its output against the rendered sidebar too:
 
 ```bash
 herdr plugin action invoke agent-numbers.verify
 ```
-
-If the two disagree, fix the `rank` function in `order.jq` from the evidence.
 
 ## Requirements
 
@@ -92,28 +88,34 @@ mode, and writes each agent's position:
 herdr pane report-metadata <pane_id> --source agent-numbers --token num=<n>
 ```
 
-It runs on `pane.agent_status_changed` — load-bearing under `priority`, where the
-status *is* the ordering input — plus `pane.agent_detected`, `pane.created` and
-`pane.closed` for agents appearing and disappearing, and `pane.moved` /
-`workspace.moved`, which reorder the panel under `spaces` with no status change at
-all. Renames deliberately trigger nothing: the order does not depend on the name.
+It runs on status, detection, creation, closure, pane/workspace moves, and
+pane/tab/workspace focus events. Renames do not trigger it.
 
-The token each pane already carries is read back out of the same snapshot, and only
-the panes that disagree are written. Nothing is cached, so there is no stored state
-to drift out of sync with reality — a token lost to a server restart, or clobbered by
-something else, is simply republished on the next event. `pane.focused` is what makes
-recovery prompt: it is the first event after reattaching.
+Each snapshot/read/write pass takes a per-socket lock **before** reading state,
+so older snapshots cannot overwrite newer runs. The lock is released during
+retry delays so bursts do not queue an entire settling window per event. Waiting
+invocations read fresh state once they acquire the lock. Only differing tokens are written, concurrently within a run.
+The script rechecks after 0.2 seconds and another 0.5 seconds, including when the
+first check found nothing to change. This catches changes while handling the
+event and retries failed writes without needing another user action. A final
+read reports failure if numbers still disagree or the snapshot cannot be read.
+Work is bounded; further events retry if the server keeps changing.
 
-(Metadata tokens are in-memory and die with the herdr server. That needs no special
-handling here: a restarted server has no tokens, so every ordinal differs and every
-pane is rewritten. Switching `agent_panel_sort` is the same story — the published
-numbers simply disagree with the new ordering and get corrected.)
+No ordering is cached. Missing metadata after a restart is republished on the
+next subscribed event. This is event-driven recovery, not a background poller,
+and does not fix client-only ordering changes described above.
 
-Those writes go out concurrently. A full reorder touches every agent, and the panel
-has already reordered from herdr's own state by the time any of them land, so the
-round trips are a visible lag rather than just CPU. Every write is attempted even if
-one fails; a failure needs no bookkeeping, since the token stays wrong and the next
-event notices.
+### Interrupted-run recovery
+
+The portable lock is a directory next to the session socket:
+`<socket-path>.agent-numbers.lock`, containing the owning process ID in `pid`.
+Normal exits and handled interrupts release it after outstanding writes finish.
+A waiter fails visibly after about 10 seconds rather than running concurrently.
+
+SIGKILL or a machine crash can leave the directory behind. Check its `pid` and
+confirm that the owner and its metadata commands have stopped, then remove only
+that lock's `pid` file and empty directory. Invoke `agent-numbers.renumber` again.
+The plugin deliberately never steals a lock that might still protect a writer.
 
 All agents are numbered, including past the ninth. Only 1–9 are bindable via
 `focus_agent`, but truncating the display would misrepresent the panel.

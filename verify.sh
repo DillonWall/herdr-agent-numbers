@@ -2,11 +2,8 @@
 # Prints the ordering this plugin computes, alongside the number actually published
 # to each pane, so both can be diffed against the rendered agents panel.
 #
-# It matters most under agent_panel_sort = "priority", where the ordering is
-# REPLICATED rather than read: the blocked rung of the ranking has never been observed.
-# Run it with agents actually blocked and compare against the sidebar before trusting
-# the numbers. Under "spaces" the order comes straight from the snapshot's array
-# order, so this is a sanity check rather than a hypothesis test.
+# Priority order is derived from the server snapshot; client-side completion
+# acknowledgement can produce a different visible order. See README limitations.
 set -euo pipefail
 
 herdr="${HERDR_BIN_PATH:-herdr}"
@@ -17,7 +14,7 @@ want="$(printf '%s\n' "$snap" | jq -r --arg mode "$mode" -f "$here/order.jq")"
 
 echo "agent_panel_sort = \"$mode\""
 if [ "$mode" = "priority" ]; then
-  echo "(replicated sort -- blocked's rank is still INFERRED; a mismatch means it is wrong)"
+  echo "(server-derived sort -- client completion acknowledgement can change visible order)"
 else
   echo "(snapshot array order, read directly -- no inference)"
 fi
@@ -43,6 +40,6 @@ printf '%s\n' "$snap" | jq -r --arg want "$want" '
 
 echo
 echo "Compare NUM top-to-bottom against the agents panel. A mismatch under \"priority\""
-echo "means the ranking in order.jq is wrong -- see the README."
+echo "may reflect client-specific done/idle state -- see the README."
 echo "A mismatch under \"spaces\" means the snapshot array order is not the panel order."
 echo "A PUB other than \"ok\" means a write has not landed; re-run renumber."

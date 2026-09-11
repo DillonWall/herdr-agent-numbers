@@ -1,6 +1,6 @@
 id = "agent-numbers"
 name = "Agent Numbers"
-version = "0.1.0"
+version = "0.1.1"
 min_herdr_version = "0.8.2"
 description = "Number the agents panel to match focus_agent (prefix+1..9)."
 platforms = ["linux", "macos"]
@@ -17,8 +17,7 @@ title = "Verify agent ordering"
 contexts = ["global"]
 command = ["./verify.sh"]
 
-# Under agent_panel_sort = "priority" the ordering input IS the agent status, so
-# every reorder is preceded by a status change.
+# Server status changes can reorder the priority panel.
 
 [[events]]
 on = "pane.agent_status_changed"
@@ -50,10 +49,16 @@ command = ["./renumber.sh"]
 on = "workspace.moved"
 command = ["./renumber.sh"]
 
-# Tokens are in-memory only and do not survive a server restart. Focus is the first
-# event after reattaching, so it doubles as the recovery hook -- renumber.sh keys its
-# cache on the socket instance, so a restart republishes instead of no-opping.
+# Focus events also refresh metadata after navigation or reattachment.
 
 [[events]]
 on = "pane.focused"
+command = ["./renumber.sh"]
+
+[[events]]
+on = "tab.focused"
+command = ["./renumber.sh"]
+
+[[events]]
+on = "workspace.focused"
 command = ["./renumber.sh"]
