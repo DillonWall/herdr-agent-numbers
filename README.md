@@ -91,9 +91,10 @@ herdr pane report-metadata <pane_id> --source agent-numbers --token num=<n>
 It runs on status, detection, creation, closure, pane/workspace moves, and
 pane/tab/workspace focus events. Renames do not trigger it.
 
-Each invocation takes a per-socket lock **before** reading a snapshot, so older
-runs cannot overwrite newer runs. Waiting invocations read fresh state once they
-acquire the lock. Only differing tokens are written, concurrently within a run.
+Each snapshot/read/write pass takes a per-socket lock **before** reading state,
+so older snapshots cannot overwrite newer runs. The lock is released during
+retry delays so bursts do not queue an entire settling window per event. Waiting
+invocations read fresh state once they acquire the lock. Only differing tokens are written, concurrently within a run.
 The script rechecks after 0.2 seconds and another 0.5 seconds, including when the
 first check found nothing to change. This catches changes while handling the
 event and retries failed writes without needing another user action. A final

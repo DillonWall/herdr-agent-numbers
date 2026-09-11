@@ -66,7 +66,7 @@ rm "$tmp/hold-writes"
 wait "$first"
 wait "$second"
 correct
-[ "$(uniq "$tmp/reads.log")" = $'first\nsecond' ]
+grep -q second "$tmp/reads.log"
 [ ! -d "$HERDR_SOCKET_PATH.agent-numbers.lock" ]
 echo 'PASS: overlapping runs serialize and leave the latest ordering published'
 
@@ -121,3 +121,17 @@ grep -q 'lock unavailable' "$tmp/timeout.log"
 [ -d "$HERDR_SOCKET_PATH.agent-numbers.lock" ]
 rmdir "$HERDR_SOCKET_PATH.agent-numbers.lock"
 echo 'PASS: lock contention times out visibly without stealing ownership'
+
+# A burst must share the retry delay rather than queue 0.7s under the lock per run.
+reset
+pids=()
+for ((i=0; i<20; i++)); do
+  bash "$DIR/../renumber.sh" &
+  pids+=("$!")
+done
+burst_failed=0
+for pid in "${pids[@]}"; do wait "$pid" || burst_failed=1; done
+[ "$burst_failed" = 0 ]
+correct
+[ ! -d "$HERDR_SOCKET_PATH.agent-numbers.lock" ]
+echo 'PASS: twenty simultaneous invocations finish without lock timeouts'

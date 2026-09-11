@@ -8,24 +8,35 @@ dry="${AGENT_NUMBERS_DRY_RUN:-0}"
 socket="${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}"
 lock="$socket.agent-numbers.lock"
 
-# Take the lock BEFORE reading state. Waiting runs must not publish an older
-# snapshot after a newer run. mkdir works on macOS's stock bash too.
-if [ "$dry" != "1" ]; then
-  attempts=0
+# Serialize snapshot/read/write passes, but release ownership during retry delays
+# so a burst of events does not queue a full settling window per invocation.
+lock_owned=0
+release_lock() {
+  if [ "$lock_owned" = 1 ]; then
+    # Interrupted parents retain ownership until metadata children finish.
+    wait
+    rm -f "$lock/pid"
+    rmdir "$lock"
+    lock_owned=0
+  fi
+}
+acquire_lock() {
+  local attempts=0
   until mkdir "$lock" 2>/dev/null; do
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       printf 'agent-numbers: lock unavailable: %s (see README recovery)\n' "$lock" >&2
-      exit 1
+      return 1
     fi
     sleep 0.1
   done
-  # Keep ownership until all metadata children finish, even on interruption.
-  trap 'wait; rm -f "$lock/pid"; rmdir "$lock"' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  lock_owned=1
   printf '%s\n' "$$" > "$lock/pid"
-fi
+}
+trap release_lock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 changes() {
   local mode snap want have
@@ -69,10 +80,13 @@ fi
 # be settling. Bound the work so a continuously changing session cannot loop.
 for delay in 0 0.2 0.5; do
   [ "$delay" = 0 ] || sleep "$delay"
+  acquire_lock
   if changed="$(changes)"; then
     publish "$changed"
   fi
+  release_lock
 done
+acquire_lock
 changed="$(changes)" || exit 1
 if [ -n "$changed" ]; then
   printf 'agent-numbers: numbers still differ after retries; next event will retry\n' >&2
