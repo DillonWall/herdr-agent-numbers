@@ -52,7 +52,7 @@ herdr plugin action invoke agent-numbers.verify
 
 ## Requirements
 
-`bash` and `jq`. No other runtime dependencies.
+`bash` and `jq`, on herdr 0.9.0 or newer. No separate service is required.
 
 ## Install
 
@@ -101,9 +101,33 @@ event and retries failed writes without needing another user action. A final
 read reports failure if numbers still disagree or the snapshot cannot be read.
 Work is bounded; further events retry if the server keeps changing.
 
-No ordering is cached. Missing metadata after a restart is republished on the
-next subscribed event. This is event-driven recovery, not a background poller,
-and does not fix client-only ordering changes described above.
+No ordering is cached by the renumber command. Missing metadata after a restart
+is republished automatically by the watcher.
+
+### Automatic focus recovery
+
+The plugin includes a background watcher; no separate service or manual launch
+is needed. Herdr starts it through the plugin startup hook. The renumber action
+and event hooks also ensure it is running, so installing into an already-running
+server works after invoking `agent-numbers.renumber` once.
+
+One watcher per server socket checks snapshots every 500 ms. It compares focus,
+agent status/sequence/order, and published numbers, and runs one reconciliation
+pass only when those inputs change. Stable snapshots cause no metadata writes.
+This covers client navigation that updates server state without emitting the API
+focus events. It still cannot reconstruct a different client's private done/idle
+presentation when that differs from server state.
+
+The watcher exits when the socket disappears, after three consecutive failed
+reads, or when the plugin is disabled/uninstalled. Reinstallation hands it over
+to the new watcher code. A subsequent subscribed event restarts a stopped watcher.
+Its lock is `<socket>.agent-numbers-watch.<inode>.lock`, containing its PID; a new
+server socket uses a new lock. Like the renumber lock, SIGKILL can require manual
+cleanup after confirming that the recorded process has stopped.
+
+Measured on Linux with herdr 0.9.0: about 3.7 MiB resident memory, 5.9 MiB sampled
+including child processes, and 1.6–1.8% of one CPU core over two 17-second idle samples.
+These are observations, not limits; session size and hardware affect the cost.
 
 ### Interrupted-run recovery
 
@@ -138,7 +162,8 @@ bash tests/run.sh                  # every suite
 shellcheck -x ./*.sh tests/*.sh    # must be clean
 ```
 
-Both run in CI on every push and pull request. The tests use fixture snapshots,
+Both run in CI on every push and pull request. Tests additionally need `python3`
+(to create a disposable socket pathname). They use fixture snapshots,
 synthetic config dirs and a fake `herdr` on `PATH`; they never touch a live session.
 
 ## License

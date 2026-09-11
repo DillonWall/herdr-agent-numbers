@@ -1,7 +1,7 @@
 id = "agent-numbers"
 name = "Agent Numbers"
-version = "0.1.1"
-min_herdr_version = "0.8.2"
+version = "0.1.2"
+min_herdr_version = "0.9.0"
 description = "Number the agents panel to match focus_agent (prefix+1..9)."
 platforms = ["linux", "macos"]
 
@@ -9,7 +9,7 @@ platforms = ["linux", "macos"]
 id = "renumber"
 title = "Renumber agents"
 contexts = ["global"]
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 [[actions]]
 id = "verify"
@@ -21,21 +21,21 @@ command = ["./verify.sh"]
 
 [[events]]
 on = "pane.agent_status_changed"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 # Agents appearing and disappearing, in either sort mode.
 
 [[events]]
 on = "pane.agent_detected"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 [[events]]
 on = "pane.created"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 [[events]]
 on = "pane.closed"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 # Under "spaces" the order is structural, so a pane or space moving reorders the
 # panel with no status change at all. Neither event fires in the priority case,
@@ -43,22 +43,25 @@ command = ["./renumber.sh"]
 
 [[events]]
 on = "pane.moved"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 [[events]]
 on = "workspace.moved"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 # Focus events also refresh metadata after navigation or reattachment.
 
 [[events]]
 on = "pane.focused"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 [[events]]
 on = "tab.focused"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
 
 [[events]]
 on = "workspace.focused"
-command = ["./renumber.sh"]
+command = ["./refresh.sh"]
+
+[[startup]]
+command = ["./watch.sh", "start"]

@@ -78,7 +78,9 @@ fi
 
 # Always recheck, even after an initial no-op: focus/status handling can still
 # be settling. Bound the work so a continuously changing session cannot loop.
-for delay in 0 0.2 0.5; do
+delays=(0 0.2 0.5)
+if [ "${1:-}" = --once ]; then delays=(0); fi
+for delay in "${delays[@]}"; do
   [ "$delay" = 0 ] || sleep "$delay"
   acquire_lock
   if changed="$(changes)"; then
