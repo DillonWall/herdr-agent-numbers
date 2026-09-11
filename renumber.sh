@@ -1,51 +1,80 @@
 #!/usr/bin/env bash
-# Publishes each agent's 1-based panel position as a `num` metadata token, which
-# ui.sidebar.agents renders via the "$num" row token.
-#
-# The published token is read back out of the same snapshot and only the panes that
-# disagree are written, which makes this self-healing: a token lost to a server
-# restart, or one clobbered by something else, is simply republished on the next
-# event. Nothing is cached, so there is no stored state to drift from reality.
+# Reconcile published numbers with fresh server snapshots after each event.
 set -euo pipefail
 
 herdr="${HERDR_BIN_PATH:-herdr}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dry="${AGENT_NUMBERS_DRY_RUN:-0}"
+socket="${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}"
+lock="$socket.agent-numbers.lock"
 
-# The panel order differs completely between herdr's two sort modes, so the active
-# one selects which derivation order.jq applies.
-mode="$("$here/sort-mode.sh")"
+# Take the lock BEFORE reading state. Waiting runs must not publish an older
+# snapshot after a newer run. mkdir works on macOS's stock bash too.
+if [ "$dry" != "1" ]; then
+  attempts=0
+  until mkdir "$lock" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      printf 'agent-numbers: lock unavailable: %s (see README recovery)\n' "$lock" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  # Keep ownership until all metadata children finish, even on interruption.
+  trap 'wait; rm -f "$lock/pid"; rmdir "$lock"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  printf '%s\n' "$$" > "$lock/pid"
+fi
 
-# One snapshot for both halves of the comparison, so the wanted ordering and the
-# published tokens can never be read a moment apart.
-snap="$("$herdr" api snapshot)"
-want="$(printf '%s\n' "$snap" | jq -r --arg mode "$mode" -f "$here/order.jq")"
-have="$(printf '%s\n' "$snap" | jq -r '
-  .result.snapshot.panes[] | select(.tokens.num != null) | "\(.pane_id)\t\(.tokens.num)"')"
+changes() {
+  local mode snap want have
+  mode="$("$here/sort-mode.sh")" || return 1
+  snap="$("$herdr" api snapshot)" || return 1
+  printf '%s\n' "$snap" | jq -e '
+    .result.snapshot | (.agents | type == "array") and (.panes | type == "array")
+  ' >/dev/null || return 1
+  want="$(printf '%s\n' "$snap" | jq -r --arg mode "$mode" -f "$here/order.jq")" || return 1
+  have="$(printf '%s\n' "$snap" | jq -r '
+    .result.snapshot.panes[] | select(.tokens.num != null) | "\(.pane_id)\t\(.tokens.num)"')" || return 1
+  comm -23 <(printf '%s\n' "$want" | sort) <(printf '%s\n' "$have" | sort)
+}
 
-# comm needs sorted input; the ordering itself is carried in the lines themselves.
-changed="$(comm -23 <(printf '%s\n' "$want" | sort) <(printf '%s\n' "$have" | sort) || true)"
+publish() {
+  local changed="$1" pane_id num pid
+  local pids=()
+  while IFS=$'\t' read -r pane_id num; do
+    [ -n "$pane_id" ] || continue
+    if [ "$dry" = "1" ]; then
+      printf '%s pane report-metadata %s --source agent-numbers --token num=%s\n' "$herdr" "$pane_id" "$num"
+    else
+      "$herdr" pane report-metadata "$pane_id" --source agent-numbers --token "num=$num" &
+      pids+=("$!")
+    fi
+  done <<< "$changed"
+  # A closed pane or transient failure must not prevent the other writes. The
+  # next snapshot determines whether anything still needs repairing.
+  for pid in ${pids[@]+"${pids[@]}"}; do
+    wait "$pid" || true
+  done
+}
 
-# The writes are independent, so they go out concurrently -- a full reorder touches
-# every agent, and at ~2ms per round trip the sequential version spent most of its
-# runtime waiting. The panel reorders from herdr's own state before any of this lands,
-# so this shortens a visible lag rather than merely saving CPU.
-pids=()
-while IFS=$'\t' read -r pane_id num; do
-  [ -n "$pane_id" ] || continue
-  if [ "$dry" = "1" ]; then
-    printf '%s pane report-metadata %s --source agent-numbers --token num=%s\n' "$herdr" "$pane_id" "$num"
-  else
-    "$herdr" pane report-metadata "$pane_id" --source agent-numbers --token "num=$num" &
-    pids+=("$!")
+if [ "$dry" = "1" ]; then
+  changed="$(changes)"
+  publish "$changed"
+  exit 0
+fi
+
+# Always recheck, even after an initial no-op: focus/status handling can still
+# be settling. Bound the work so a continuously changing session cannot loop.
+for delay in 0 0.2 0.5; do
+  [ "$delay" = 0 ] || sleep "$delay"
+  if changed="$(changes)"; then
+    publish "$changed"
   fi
-done <<< "$changed"
-
-# Every write is attempted before any failure is reported, so one bad pane cannot
-# strand the rest at stale numbers. A failure needs no special handling beyond a
-# non-zero exit: the token stays wrong, so the next event notices and retries.
-rc=0
-for pid in ${pids[@]+"${pids[@]}"}; do
-  wait "$pid" || rc=1
 done
-exit "$rc"
+changed="$(changes)" || exit 1
+if [ -n "$changed" ]; then
+  printf 'agent-numbers: numbers still differ after retries; next event will retry\n' >&2
+  exit 1
+fi

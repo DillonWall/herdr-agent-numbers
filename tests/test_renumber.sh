@@ -11,12 +11,8 @@ mkdir -p "$tmp/bin"
 
 # Fake herdr: `api snapshot` prints whatever snapshot the current case set up,
 # everything else logs its argv (and can be told to fail).
-cat > "$tmp/bin/herdr" <<FAKE
-#!/usr/bin/env bash
-if [ "\$1" = "api" ] && [ "\$2" = "snapshot" ]; then cat "$tmp/snapshot.json"; exit 0; fi
-echo "\$@" >> "$tmp/calls.log"
-if [ -n "\${FAKE_FAIL:-}" ]; then exit 1; fi
-FAKE
+cp "$DIR/fake_herdr.sh" "$tmp/bin/herdr"
+export TEST_STATE_DIR="$tmp" HERDR_SOCKET_PATH="$tmp/herdr.sock"
 chmod +x "$tmp/bin/herdr"
 # HERDR_BIN_PATH is set in every pane herdr spawns, and renumber.sh prefers it over
 # PATH -- so it must be pointed at the fake too, or this test writes to the live session.
@@ -90,7 +86,7 @@ assert_eq "$(grep -c 'report-metadata' "$tmp/dry.out")" "3" "dry run prints what
 publish ""; : > "$tmp/calls.log"
 FAKE_FAIL=1 bash "$DIR/../renumber.sh" 2>/dev/null
 assert_eq "$?" "1" "a failed write makes the run fail"
-assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "every write is still attempted"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "9" "every write is attempted on all three passes"
 
 : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
