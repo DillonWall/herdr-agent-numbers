@@ -5,6 +5,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 command -v jq >/dev/null || { echo "missing dependency: jq" >&2; exit 2; }
 
+command -v python3 >/dev/null || { echo "missing test dependency: python3" >&2; exit 2; }
+
 rc=0
 for t in "$DIR"/test_*.sh; do
   bash "$t" || rc=1

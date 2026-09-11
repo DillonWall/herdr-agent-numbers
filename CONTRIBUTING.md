@@ -21,7 +21,7 @@ bash tests/run.sh                       # every suite
 shellcheck -x ./*.sh tests/*.sh         # must be clean
 ```
 
-Both run in CI on every push and pull request. The suites need only `bash` and `jq`,
+Both run in CI on every push and pull request. The suites need `bash`, `jq`, and `python3`,
 and never touch a live herdr session: they run against fixture snapshots and a fake
 `herdr` placed on `PATH`.
 
@@ -31,6 +31,7 @@ and never touch a live herdr session: they run against fixture snapshots and a f
 | `tests/test_sort_mode.sh` | detecting `agent_panel_sort` from `config.toml` |
 | `tests/test_renumber.sh` | which panes get written, and when |
 | `tests/test_recovery.sh` | delayed reorders, overlap, retries, and lock cleanup |
+| `tests/test_watch.sh` | missed events, idle writes, singleton and shutdown |
 
 ## Constraints
 
