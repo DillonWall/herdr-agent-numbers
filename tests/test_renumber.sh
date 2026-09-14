@@ -92,5 +92,50 @@ assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "9" "every write is at
 bash "$DIR/../renumber.sh"
 assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "3" "the next run retries the failed writes"
 
+# --- The client's own idle/done view. ---
+# herdr's client shows an idle agent as done until its latest state change has been
+# on screen, and ranks it above every idle agent. renumber.sh keeps the same record.
+
+# show <pane> -- gives every agent its own tab and focuses <pane>'s, so exactly that
+# agent is on screen. Published tokens are kept.
+show() {
+  jq --arg pane "$1" '.result.snapshot.focused_tab_id = "t-" + $pane
+    | .result.snapshot.layouts = [.result.snapshot.agents[]
+        | {tab_id: ("t-" + .pane_id), zoomed: false, focused_pane_id: .pane_id, panes: [{pane_id}]}]
+  ' "$tmp/snapshot.json" > "$tmp/next.json" && mv "$tmp/next.json" "$tmp/snapshot.json"
+}
+# change <pane> <seq> -- a state change for one agent; its server status stays idle.
+change() {
+  jq --arg pane "$1" --argjson n "$2" '
+    (.result.snapshot.agents[] | select(.pane_id == $pane) | .state_change_seq) = $n
+  ' "$tmp/snapshot.json" > "$tmp/next.json" && mv "$tmp/next.json" "$tmp/snapshot.json"
+}
+
+# A new record counts everything present as seen, so nothing moves.
+rm -f "$HERDR_SOCKET_PATH.agent-numbers.ack"
+publish "w1:p1=1,w2:p1=2,w1:p2=3"; show w1:p1; : > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'report-metadata' "$tmp/calls.log")" "0" "a new record counts every agent as seen"
+
+# w1:p2 finishes off screen. Its seq (4) is below w1:p1's (9), yet the client shows
+# it as done and ranks it first.
+change w1:p2 4; : > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=1' "$tmp/calls.log")" "1" "an agent that finished off screen is numbered first"
+assert_eq "$(grep -c 'w1:p1 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "the idle agents follow it"
+# verify.sh uses the same record, so it agrees with what was published.
+assert_eq "$(bash "$DIR/../verify.sh" | awk '$3 == "w1:p2" {print $1, $2}')" "1 ok" "verify agrees about the unacknowledged completion"
+
+# Viewing it acknowledges the completion, and it falls back into seq order.
+show w1:p2; : > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'w1:p1 --source agent-numbers --token num=1' "$tmp/calls.log")" "1" "viewing it restores seq order"
+assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "behind the higher seq"
+
+# A dry run reports but records nothing: a change on screen stays unacknowledged.
+change w1:p2 5
+AGENT_NUMBERS_DRY_RUN=1 bash "$DIR/../renumber.sh" > /dev/null
+assert_eq "$(jq '.ack["w1:p2"]' "$HERDR_SOCKET_PATH.agent-numbers.ack")" "4" "a dry run leaves the record alone"
+
 echo "--- test_renumber.sh: $PASS passed, $FAIL failed ---"
 [ "$FAIL" -eq 0 ]

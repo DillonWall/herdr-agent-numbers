@@ -43,7 +43,9 @@ while [ -S "$socket" ] && [ "$(ls -id "$socket")" = "$socket_id" ]; do
     if any($registry[0][]; .plugin_id == "agent-numbers" and .enabled and .plugin_root == $root)
     then .result.snapshot | [ .focused_pane_id,
       [.agents[] | [.pane_id, .agent_status, .state_change_seq]],
-      [.panes[] | [.pane_id, .tokens.num]] ]
+      [.panes[] | [.pane_id, .tokens.num]],
+      # What is on screen feeds ack.jq, so zooms and splits count as changes too.
+      [.focused_tab_id as $tab | .layouts[]? | select(.tab_id == $tab) | [.zoomed, [.panes[]?.pane_id]]] ]
     else "disabled" end')"; then
     failures=$((failures + 1))
     [ "$failures" -lt 3 ] || exit 1

@@ -9,11 +9,21 @@
 # in ascending pane order -- byte-identical to the panes array. The order is
 # therefore READ, not inferred, and this mode carries no risk of being wrong.
 #
-# "priority": matches herdr 0.9.0's rank and sequence sort, but the client can
-# project done/idle differently from this server snapshot. See README limitations.
+# "priority": matches herdr 0.9.0's rank and sequence sort. The client ranks its own
+# idle/done view rather than the server's: an idle or done agent shows as done until
+# its latest state change has been on screen. Pass that view as `--argjson ack`, a
+# map of pane_id to the last seq on screen (kept by ack.jq). Without it the
+# snapshot's statuses are ranked as given.
 def rank: {"blocked":0,"done":1,"working":2,"idle":3}[.] // 4;
 
-[ .result.snapshot.agents[] | {pane_id, agent_status, state_change_seq} ]
+# herdr's EndpointAgentPresentation::projected_status, src/client/shell/endpoint_agent_state.rs.
+def project($ack):
+  if .agent_status == "idle" or .agent_status == "done"
+  then .agent_status = (if ($ack[.pane_id] // -1) >= .state_change_seq then "idle" else "done" end)
+  else . end;
+
+[ .result.snapshot.agents[] | {pane_id, agent_status, state_change_seq}
+  | if $ARGS.named | has("ack") then project($ARGS.named.ack) else . end ]
 | (if $mode == "priority"
    then sort_by([(.agent_status | rank), -(.state_change_seq)])
    else .

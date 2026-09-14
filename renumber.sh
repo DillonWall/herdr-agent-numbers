@@ -7,6 +7,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dry="${AGENT_NUMBERS_DRY_RUN:-0}"
 socket="${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}"
 lock="$socket.agent-numbers.lock"
+# The client's record of what has been on screen, for one server (see ack.jq).
+seen="$socket.agent-numbers.ack"
 
 # Serialize snapshot/read/write passes, but release ownership during retry delays
 # so a burst of events does not queue a full settling window per invocation.
@@ -39,13 +41,24 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 changes() {
-  local mode snap want have
+  local mode snap state server next want have
   mode="$("$here/sort-mode.sh")" || return 1
   snap="$("$herdr" api snapshot)" || return 1
   printf '%s\n' "$snap" | jq -e '
     .result.snapshot | (.agents | type == "array") and (.panes | type == "array")
   ' >/dev/null || return 1
-  want="$(printf '%s\n' "$snap" | jq -r --arg mode "$mode" -f "$here/order.jq")" || return 1
+  # No readable record yet: start a baseline, as the client does for a new server.
+  state="$(jq -cn '[inputs] | if length == 1 and (.[0] | type) == "object" then .[0] else null end' \
+    "$seen" 2>/dev/null)" || state=null
+  server="$(ls -id "$socket" 2>/dev/null)" || server=""
+  next="$(printf '%s\n' "$snap" | jq -c --argjson prev "$state" --arg server "$server" -f "$here/ack.jq")" || return 1
+  # Dry runs take no lock, so they leave the record alone too.
+  if [ "$dry" != 1 ] && [ "$next" != "$state" ]; then
+    printf '%s\n' "$next" > "$seen.tmp" || return 1
+    mv "$seen.tmp" "$seen" || return 1
+  fi
+  want="$(printf '%s\n' "$snap" | jq -r --arg mode "$mode" --argjson ack "$(printf '%s\n' "$next" | jq -c .ack)" \
+    -f "$here/order.jq")" || return 1
   have="$(printf '%s\n' "$snap" | jq -r '
     .result.snapshot.panes[] | select(.tokens.num != null) | "\(.pane_id)\t\(.tokens.num)"')" || return 1
   comm -23 <(printf '%s\n' "$want" | sort) <(printf '%s\n' "$have" | sort)
