@@ -86,7 +86,9 @@ sleep 0.3
 owners=("$HERDR_SOCKET_PATH".agent-numbers-watch.*.lock/pid)
 [ "${#owners[@]}" = 1 ]
 [ "$(cat "${owners[0]}")" = "$watcher" ]
-echo 'PASS: duplicate starts retain one watcher'
+# A duplicate that loses the race must not touch the owner's on-screen record.
+[ -f "$HERDR_SOCKET_PATH.agent-numbers.ack" ] || { echo 'a duplicate start dropped the record' >&2; exit 1; }
+echo 'PASS: duplicate starts retain one watcher and its record'
 
 # Disable without emitting a plugin event. The watcher must stop and clean up.
 jq '.[0].enabled = false' "$tmp/config/herdr/plugins.json" > "$tmp/disabled.json"
@@ -95,7 +97,9 @@ stopped
 wait "$watcher"
 watcher=""
 [ ! -f "${owners[0]}" ]
-echo 'PASS: disabling the plugin stops the watcher and releases its lock'
+# Nothing watches while the plugin is off, so its on-screen record must not outlive it.
+[ ! -e "$HERDR_SOCKET_PATH.agent-numbers.ack" ] || { echo 'the record outlived the watcher' >&2; exit 1; }
+echo 'PASS: disabling the plugin stops the watcher, releases its lock and drops its record'
 
 # Socket disappearance must also end the watcher.
 jq '.[0].enabled = true' "$tmp/config/herdr/plugins.json" > "$tmp/enabled.json"

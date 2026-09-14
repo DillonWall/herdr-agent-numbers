@@ -57,7 +57,8 @@ the sidebar:
 - **Reattaching.** A client that reattaches to a running server restarts its record
   and shows every agent as idle. The API exposes no clients or attach events, so the
   plugin keeps its old record.
-- **Installing mid-session.** The plugin's record starts when it first runs, so
+- **Installing mid-session, or any gap in watching.** The record starts over when
+  the plugin first runs and whenever its watcher stops (reinstall, disable), so
   agents the sidebar already shows as done count as seen here until you view them.
 - **Several clients.** Each keeps its own record; the plugin follows the server's
   focused tab.
@@ -140,6 +141,8 @@ priority-mode section lists what that record cannot see.
 The watcher exits when the socket disappears, after three consecutive failed
 reads, or when the plugin is disabled/uninstalled. Reinstallation hands it over
 to the new watcher code. A subsequent subscribed event restarts a stopped watcher.
+Whenever it stops or hands over, it deletes the on-screen record too, since nothing
+keeps that record current in between; the next pass starts a fresh one.
 Its lock is `<socket>.agent-numbers-watch.<inode>.lock`, containing its PID; a new
 server socket uses a new lock. Like the renumber lock, SIGKILL can require manual
 cleanup after confirming that the recorded process has stopped.

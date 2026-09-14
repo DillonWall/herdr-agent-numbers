@@ -21,7 +21,9 @@ case "${1:-start}" in
   *) echo 'usage: watch.sh [start|run]' >&2; exit 2 ;;
 esac
 mkdir "$lock" 2>/dev/null || exit 0
-cleanup() { rm -f "$lock/pid"; rmdir "$lock"; }
+# Nothing keeps the on-screen record current once this watcher stops, so it goes
+# with the lock and the next pass starts a fresh one (see ack.jq).
+cleanup() { rm -f "$lock/pid" "$socket.agent-numbers.ack"; rmdir "$lock"; }
 trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
