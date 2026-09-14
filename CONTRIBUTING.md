@@ -9,10 +9,11 @@ herdr computes no agent ordinal and exposes no `agent_index` token. The ranking 
 blocked  <  done  <  working  <  idle          then most recent state change first
 ```
 
-The rank matches herdr 0.9.0's source, but the server snapshot can disagree with
-the client's completion acknowledgement state. See the README's priority-mode
-limitation. Reports should include the verify output and actual sidebar order;
-do not change the rank to compensate for stale metadata or client-only state.
+The rank matches herdr 0.9.0's source. The statuses it ranks are the client's
+idle/done view, which `ack.jq` mirrors from what has been on screen; the README's
+priority-mode section lists what that copy cannot see. Reports should include the
+verify output and actual sidebar order; do not change the rank to compensate for
+stale metadata or client-only state.
 
 ## Running the tests
 
@@ -28,6 +29,7 @@ and never touch a live herdr session: they run against fixture snapshots and a f
 | Suite | Covers |
 |---|---|
 | `tests/test_order.sh` | the ordering derivation, in both sort modes |
+| `tests/test_ack.sh` | the on-screen record behind the client's idle/done view |
 | `tests/test_sort_mode.sh` | detecting `agent_panel_sort` from `config.toml` |
 | `tests/test_renumber.sh` | which panes get written, and when |
 | `tests/test_recovery.sh` | delayed reorders, overlap, retries, and lock cleanup |

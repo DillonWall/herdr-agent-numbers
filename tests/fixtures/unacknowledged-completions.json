@@ -1,0 +1,7 @@
+{"result":{"snapshot":{"agents":[
+{"pane_id":"wC:p6","agent_status":"blocked","state_change_seq":10},
+{"pane_id":"wC:p8","agent_status":"idle","state_change_seq":5},
+{"pane_id":"wC:p9","agent_status":"idle","state_change_seq":8},
+{"pane_id":"wC:pB","agent_status":"idle","state_change_seq":6},
+{"pane_id":"wD:p1","agent_status":"idle","state_change_seq":9}
+]}}}

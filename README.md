@@ -36,15 +36,35 @@ then state_change_seq, descending
 
 This matches [herdr 0.9.0's status ranking](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell.rs)
 and [sidebar sort](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/agent_sidebar.rs).
-However, the client [tracks whether you have viewed a completion independently](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/endpoint_agent_state.rs),
-which can change its displayed `done`/`idle` status and ordering without a matching
-server event. Server snapshots do not expose that client-specific view. Numbers
-can therefore disagree with the sidebar even after a successful refresh; more
-frequent refreshes cannot guarantee an exact match. Separate clients may have
-different orders for the same panes.
+The statuses it ranks are the client's, not the server's: the client
+[shows an idle agent as done](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/endpoint_agent_state.rs)
+until its latest state change has been on screen, so an agent that finishes in a
+tab you are not looking at jumps to the top. Server snapshots do not carry that
+view, so `ack.jq` keeps a copy of it in `<socket>.agent-numbers.ack`. Every agent
+present when the plugin first sees a server counts as seen; after that, each pass
+records the seq of whatever is on screen (the focused tab, or only its focused pane
+when zoomed).
 
-The verify action compares the plugin's computed order with published metadata;
-compare its output against the rendered sidebar too:
+The copy cannot see everything the client does, so numbers can still disagree with
+the sidebar:
+
+- **Terminal window unfocused.** The client stops acknowledging and the plugin
+  cannot tell. An agent that finishes on screen shows as done in the sidebar until
+  you focus the window again.
+- **Very short visits.** A tab shown for less than one 500 ms poll, with no focus
+  event caught in time, is acknowledged by the client but not here. That agent stays
+  wrong until it changes again or you look at it again.
+- **Reattaching.** A client that reattaches to a running server restarts its record
+  and shows every agent as idle. The API exposes no clients or attach events, so the
+  plugin keeps its old record.
+- **Installing mid-session, or any gap in watching.** The record starts over when
+  the plugin first runs and whenever its watcher stops (reinstall, disable), so
+  agents the sidebar already shows as done count as seen here until you view them.
+- **Several clients.** Each keeps its own record; the plugin follows the server's
+  focused tab.
+
+The verify action prints the computed order next to each agent's status, seq, and
+acknowledged seq; compare its output against the rendered sidebar:
 
 ```bash
 herdr plugin action invoke agent-numbers.verify
@@ -112,15 +132,17 @@ and event hooks also ensure it is running, so installing into an already-running
 server works after invoking `agent-numbers.renumber` once.
 
 One watcher per server socket checks snapshots every 500 ms. It compares focus,
-agent status/sequence/order, and published numbers, and runs one reconciliation
-pass only when those inputs change. Stable snapshots cause no metadata writes.
-This covers client navigation that updates server state without emitting the API
-focus events. It still cannot reconstruct a different client's private done/idle
-presentation when that differs from server state.
+what is on screen, agent status/sequence/order, and published numbers, and runs
+one reconciliation pass only when those inputs change. Stable snapshots cause no
+metadata writes. This covers client navigation that updates server state without
+emitting the API focus events, and keeps the on-screen record current; the
+priority-mode section lists what that record cannot see.
 
 The watcher exits when the socket disappears, after three consecutive failed
 reads, or when the plugin is disabled/uninstalled. Reinstallation hands it over
 to the new watcher code. A subsequent subscribed event restarts a stopped watcher.
+Whenever it stops or hands over, it deletes the on-screen record too, since nothing
+keeps that record current in between; the next pass starts a fresh one.
 Its lock is `<socket>.agent-numbers-watch.<inode>.lock`, containing its PID; a new
 server socket uses a new lock. Like the renumber lock, SIGKILL can require manual
 cleanup after confirming that the recorded process has stopped.

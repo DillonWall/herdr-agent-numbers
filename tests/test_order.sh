@@ -21,6 +21,14 @@ check_numbers() { # check_numbers <name> <mode> <fixture> <expected-ordinals>
   else FAIL=$((FAIL+1)); echo "FAIL: $name"; echo "  want: $4"; echo "  got:  $got"; fi
 }
 
+check_ack() { # check_ack <name> <fixture> <ack-map-json> <expected-pane-id-order>
+  local name="$1" got
+  got="$(jq -r --arg mode priority --argjson ack "$3" -f "$DIR/../order.jq" < "$DIR/fixtures/$2" \
+    | cut -f1 | tr '\n' ' ' | sed 's/ $//')"
+  if [ "$got" = "$4" ]; then PASS=$((PASS+1));
+  else FAIL=$((FAIL+1)); echo "FAIL: $name"; echo "  want: $4"; echo "  got:  $got"; fi
+}
+
 # --- priority mode: status rank first, then state_change_seq descending. ---
 
 # The live-verified case: all idle, ordered by state_change_seq descending.
@@ -58,6 +66,28 @@ check_numbers "spaces numbers all eleven" spaces many-agents.json "1 2 3 4 5 6 7
 # own default is spaces.
 check "unknown mode falls back to spaces" bogus mixed-status.json \
   "w1:pIdle w1:pDone w1:pWorkA w1:pBlocked w1:pWorkB"
+
+# --- priority mode with an ack map: the client's own idle/done projection. ---
+
+# herdr's client shows an idle or done agent as done until its latest state change
+# has been on screen, and sorts on that. The ack map is the last seq seen per pane.
+
+# Regression, from the live panel: connectors (seq 5) and Static video (seq 6)
+# finished off screen, so they show done and outrank idle agents with higher seqs.
+check_ack "unacknowledged completions show as done" unacknowledged-completions.json \
+  '{"wC:p6":10,"wC:p8":4,"wC:p9":8,"wC:pB":5,"wD:p1":9}' "wC:p6 wC:pB wC:p8 wD:p1 wC:p9"
+
+# An agent that has never been on screen has no ack at all, which also means done.
+check_ack "an agent with no ack shows as done" unacknowledged-completions.json \
+  '{"wC:p6":10,"wC:p9":8,"wC:pB":6,"wD:p1":9}' "wC:p6 wC:p8 wD:p1 wC:p9 wC:pB"
+
+# Once seen, the client shows even the server's own done as idle.
+check_ack "an acknowledged server done shows as idle" done-outranks-working.json \
+  '{"w2:p3":48,"w2:p4":45}' "w2:p3 w2:p4"
+
+# Only idle and done are projected; working and blocked keep their rank.
+check_ack "an empty ack map leaves working and blocked alone" mixed-status.json \
+  '{}' "w1:pBlocked w1:pIdle w1:pDone w1:pWorkB w1:pWorkA"
 
 echo "--- test_order.sh: $PASS passed, $FAIL failed ---"
 [ "$FAIL" -eq 0 ]
