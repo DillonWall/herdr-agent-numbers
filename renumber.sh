@@ -3,6 +3,8 @@
 set -euo pipefail
 
 herdr="${HERDR_BIN_PATH:-herdr}"
+# A tool-manager update can remove the still-running server's executable.
+[ -x "$herdr" ] || herdr=herdr
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dry="${AGENT_NUMBERS_DRY_RUN:-0}"
 socket="${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}"

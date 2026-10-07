@@ -33,6 +33,8 @@ version="$(cksum "$here/watch.sh")"
 previous=""
 failures=0
 while [ -S "$socket" ] && [ "$(ls -id "$socket")" = "$socket_id" ]; do
+  # Recheck each poll: tool-manager cleanup can remove it mid-session.
+  [ -x "$herdr" ] || herdr=herdr
   # Reinstallation replaces files at the same path. Hand off to the new code.
   if [ "$(cksum "$here/watch.sh" 2>/dev/null || true)" != "$version" ]; then
     cleanup

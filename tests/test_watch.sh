@@ -55,6 +55,21 @@ mv "$tmp/next.json" "$tmp/snapshot.json"
 settle
 echo 'PASS: focus/order changes without events are repaired'
 
+# Tool-manager cleanup can delete the executable while this watcher is running.
+cp "$HERDR_BIN_PATH" "$tmp/server-herdr"
+export PATH="$tmp:$PATH" HERDR_BIN_PATH="$tmp/server-herdr"
+kill -TERM "$watcher"
+wait "$watcher" || [ "$?" -eq 143 ]
+bash "$DIR/../watch.sh" run &
+watcher=$!
+sleep 1
+rm "$HERDR_BIN_PATH"
+jq '.result.snapshot.agents[0].state_change_seq = 10' "$tmp/snapshot.json" > "$tmp/next.json"
+mv "$tmp/next.json" "$tmp/snapshot.json"
+settle
+kill -0 "$watcher"
+echo 'PASS: watcher survives removal of the running server executable'
+
 # Unzooming puts a pane on screen without moving focus or emitting an event. The
 # client acknowledges what it now shows, so the watcher has to notice the layout.
 numbered() { # numbered <pane> <num> -- waits for the watcher to publish it
