@@ -3,8 +3,8 @@
 # to each pane, so both can be diffed against the rendered agents panel.
 #
 # Priority order follows the client's idle/done view, from the on-screen record
-# renumber.sh keeps (ack.jq). ACK is the last seq seen: an idle agent whose SEQ is
-# past it shows as done. See README limitations for what the record cannot see.
+# renumber.sh keeps (ack.jq). ACK is the last seq seen: an idle agent that completed
+# work at a SEQ past it shows as done. See README limitations for what the record cannot see.
 set -euo pipefail
 
 herdr="${HERDR_BIN_PATH:-herdr}"
@@ -21,7 +21,7 @@ want="$(printf '%s\n' "$snap" | jq -r --arg mode "$mode" --argjson ack "$ack" -f
 
 echo "agent_panel_sort = \"$mode\""
 if [ "$mode" = "priority" ]; then
-  echo "(idle/done as the client shows them: an idle SEQ past its ACK ranks as done)"
+  echo "(idle/done as the client shows them: a completion past its ACK ranks as done)"
 else
   echo "(snapshot array order, read directly -- no inference)"
 fi

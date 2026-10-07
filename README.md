@@ -37,9 +37,12 @@ then state_change_seq, descending
 This matches [herdr 0.9.0's status ranking](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell.rs)
 and [sidebar sort](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/agent_sidebar.rs).
 The statuses it ranks are the client's, not the server's: the client
-[shows an idle agent as done](https://github.com/herdrdev/herdr/blob/v0.9.0/src/client/shell/endpoint_agent_state.rs)
-until its latest state change has been on screen, so an agent that finishes in a
-tab you are not looking at jumps to the top. Server snapshots do not carry that
+[shows an idle agent as done](https://github.com/herdrdev/herdr/blob/v0.9.3/src/client/shell/endpoint_agent_state.rs)
+until its latest completion has been on screen, so an agent that finishes in a
+tab you are not looking at jumps to the top. From herdr 0.9.2 only a completion
+counts (the snapshot's `completion_seq` at the current `state_change_seq`), so
+agents detected or restored at startup stay idle; on 0.9.0 and 0.9.1 any unseen
+state change shows as done. Server snapshots do not carry that
 view, so `ack.jq` keeps a copy of it in `<socket>.agent-numbers.ack`. Every agent
 present when the plugin first sees a server counts as seen; after that, each pass
 records the seq of whatever is on screen (the focused tab, or only its focused pane

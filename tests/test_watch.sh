@@ -70,7 +70,7 @@ jq '.result.snapshot.focused_tab_id = "w1:t1"
   | .result.snapshot.layouts = [{tab_id: "w1:t1", zoomed: true, focused_pane_id: "w1:p1",
       panes: [{pane_id: "w1:p1"}, {pane_id: "w1:p2"}]}]
   | .result.snapshot.agents |= map(if .pane_id == "w1:p1" then .state_change_seq = 8
-      elif .pane_id == "w1:p2" then .state_change_seq = 4 else . end)' "$tmp/snapshot.json" > "$tmp/next.json"
+      elif .pane_id == "w1:p2" then .state_change_seq = 4 | .completion_seq = 4 else . end)' "$tmp/snapshot.json" > "$tmp/next.json"
 mv "$tmp/next.json" "$tmp/snapshot.json"
 numbered w1:p2 1; numbered w1:p1 2; numbered w2:p1 3
 # Let the watcher observe its own writes, so the unzoom below is the only change.
