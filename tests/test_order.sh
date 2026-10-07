@@ -21,9 +21,9 @@ check_numbers() { # check_numbers <name> <mode> <fixture> <expected-ordinals>
   else FAIL=$((FAIL+1)); echo "FAIL: $name"; echo "  want: $4"; echo "  got:  $got"; fi
 }
 
-check_ack() { # check_ack <name> <fixture> <ack-map-json> <expected-pane-id-order>
+check_ack() { # check_ack <name> <fixture> <ack-map-json> <expected-pane-id-order> [fixture-filter]
   local name="$1" got
-  got="$(jq -r --arg mode priority --argjson ack "$3" -f "$DIR/../order.jq" < "$DIR/fixtures/$2" \
+  got="$(jq "${5:-.}" "$DIR/fixtures/$2" | jq -r --arg mode priority --argjson ack "$3" -f "$DIR/../order.jq" \
     | cut -f1 | tr '\n' ' ' | sed 's/ $//')"
   if [ "$got" = "$4" ]; then PASS=$((PASS+1));
   else FAIL=$((FAIL+1)); echo "FAIL: $name"; echo "  want: $4"; echo "  got:  $got"; fi
@@ -84,6 +84,19 @@ check_ack "an agent with no ack shows as done" unacknowledged-completions.json \
 # Once seen, the client shows even the server's own done as idle.
 check_ack "an acknowledged server done shows as idle" done-outranks-working.json \
   '{"w2:p3":48,"w2:p4":45}' "w2:p3 w2:p4"
+
+# Regression: restored on startup after the record began. Their seqs moved past the
+# ack, but detection is no completion (no completion_seq), so herdr 0.9.2+ shows them
+# idle in seq order. Only wC:p9 finished work.
+restored='.result.snapshot.version = "0.9.3"
+  | .result.snapshot.agents |= map(if .pane_id == "wC:p9" then . else del(.completion_seq) end)'
+check_ack "restored agents without a completion stay idle" unacknowledged-completions.json \
+  '{"wC:p6":10}' "wC:p6 wC:p9 wD:p1 wC:pB wC:p8" "$restored"
+
+# herdr 0.9.0 and 0.9.1 had no completion_seq and showed any unseen change as done.
+check_ack "0.9.1 shows any unacknowledged change as done" unacknowledged-completions.json \
+  '{"wC:p6":10,"wC:p9":8}' "wC:p6 wD:p1 wC:pB wC:p8 wC:p9" \
+  '.result.snapshot.version = "0.9.1" | .result.snapshot.agents[] |= del(.completion_seq)'
 
 # Only idle and done are projected; working and blocked keep their rank.
 check_ack "an empty ack map leaves working and blocked alone" mixed-status.json \

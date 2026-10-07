@@ -2,7 +2,7 @@
 # each agent pane, the last state_change_seq the client has shown. order.jq ranks
 # idle/done from it, since that is what the client's priority panel sorts on.
 #
-# Mirrors herdr 0.9.0's EndpointAgentPresentation (src/client/shell/endpoint_agent_state.rs):
+# Mirrors herdr 0.9.x's EndpointAgentPresentation (src/client/shell/endpoint_agent_state.rs):
 # - a new server starts a baseline in which every agent present counts as seen;
 # - agents that have gone are forgotten, so one that comes back starts unseen;
 # - panes on screen are acknowledged up to their current seq, and an ack only rises.

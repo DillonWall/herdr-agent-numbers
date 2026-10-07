@@ -9,7 +9,7 @@ herdr computes no agent ordinal and exposes no `agent_index` token. The ranking 
 blocked  <  done  <  working  <  idle          then most recent state change first
 ```
 
-The rank matches herdr 0.9.0's source. The statuses it ranks are the client's
+The rank matches herdr 0.9.x's source. The statuses it ranks are the client's
 idle/done view, which `ack.jq` mirrors from what has been on screen; the README's
 priority-mode section lists what that copy cannot see. Reports should include the
 verify output and actual sidebar order; do not change the rank to compensate for

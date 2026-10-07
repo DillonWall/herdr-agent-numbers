@@ -104,10 +104,10 @@ show() {
         | {tab_id: ("t-" + .pane_id), zoomed: false, focused_pane_id: .pane_id, panes: [{pane_id}]}]
   ' "$tmp/snapshot.json" > "$tmp/next.json" && mv "$tmp/next.json" "$tmp/snapshot.json"
 }
-# change <pane> <seq> -- a state change for one agent; its server status stays idle.
+# change <pane> <seq> -- an agent finishes work; its server status stays idle.
 change() {
   jq --arg pane "$1" --argjson n "$2" '
-    (.result.snapshot.agents[] | select(.pane_id == $pane) | .state_change_seq) = $n
+    (.result.snapshot.agents[] | select(.pane_id == $pane)) |= (.state_change_seq = $n | .completion_seq = $n)
   ' "$tmp/snapshot.json" > "$tmp/next.json" && mv "$tmp/next.json" "$tmp/snapshot.json"
 }
 
@@ -131,6 +131,17 @@ show w1:p2; : > "$tmp/calls.log"
 bash "$DIR/../renumber.sh"
 assert_eq "$(grep -c 'w1:p1 --source agent-numbers --token num=1' "$tmp/calls.log")" "1" "viewing it restores seq order"
 assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "behind the higher seq"
+
+# Regression: an agent restored after the record began moves its seq without
+# completing anything. The client shows it idle, so it takes its seq place (5, between
+# w1:p1's 9 and w1:p2's 4) rather than going first as done.
+jq '(.result.snapshot.agents[] | select(.pane_id == "w2:p1")) |= (.state_change_seq = 5 | del(.completion_seq))
+  ' "$tmp/snapshot.json" > "$tmp/next.json" && mv "$tmp/next.json" "$tmp/snapshot.json"
+: > "$tmp/calls.log"
+bash "$DIR/../renumber.sh"
+assert_eq "$(grep -c 'w2:p1 --source agent-numbers --token num=2' "$tmp/calls.log")" "1" "a restored agent is numbered by seq, not as done"
+assert_eq "$(grep -c 'w1:p2 --source agent-numbers --token num=3' "$tmp/calls.log")" "1" "older agents shift behind it"
+assert_eq "$(grep -c 'w1:p1 ' "$tmp/calls.log")" "0" "the newest agent keeps number 1"
 
 # A dry run reports but records nothing: a change on screen stays unacknowledged.
 change w1:p2 5
